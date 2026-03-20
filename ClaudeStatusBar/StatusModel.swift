@@ -97,9 +97,10 @@ class StatusModel: ObservableObject {
     @Published private(set) var animationFrame: Int = 0
 
     private let sessionsDirectory: URL
+    private let loadQueue = DispatchQueue(label: "com.claude.statusbar.load", qos: .utility)
     private var fileDescriptor: Int32 = -1
     private var dispatchSource: DispatchSourceFileSystemObject?
-    private var fallbackTimer: Timer?
+    private var pollingTimer: DispatchSourceTimer?
     private var animationTimer: Timer?
     private var workspaceObserver: Any?
     private var completedSince: Date?
@@ -233,12 +234,21 @@ class StatusModel: ObservableObject {
         }
 
         // Merge hooks: for each hook event, append our entries to existing arrays
+        // Check if our hooks are already present (prevent duplicates on re-install)
         var existingHooks = settings["hooks"] as? [String: Any] ?? [:]
+        let marker = "update-status.sh"
         for (eventName, newEntries) in newHooks {
             guard let newArray = newEntries as? [Any] else { continue }
-            if var existingArray = existingHooks[eventName] as? [Any] {
-                existingArray.append(contentsOf: newArray)
-                existingHooks[eventName] = existingArray
+            if let existingArray = existingHooks[eventName] as? [[String: Any]] {
+                // Skip if our hooks are already registered
+                let alreadyExists = existingArray.contains { entry in
+                    if let hooks = entry["hooks"] as? [[String: Any]] {
+                        return hooks.contains { ($0["command"] as? String)?.contains(marker) == true }
+                    }
+                    return false
+                }
+                if alreadyExists { continue }
+                existingHooks[eventName] = existingArray + (newArray as? [[String: Any]] ?? [])
             } else {
                 existingHooks[eventName] = newArray
             }
@@ -252,12 +262,18 @@ class StatusModel: ObservableObject {
     }
 
     func loadSessions() {
+        loadQueue.async { [weak self] in
+            self?.doLoadSessions()
+        }
+    }
+
+    private func doLoadSessions() {
         let fm = FileManager.default
+        // Issue #16: On failure, retain existing sessions instead of clearing
         guard let files = try? fm.contentsOfDirectory(
             at: sessionsDirectory,
             includingPropertiesForKeys: [.contentModificationDateKey]
         ) else {
-            DispatchQueue.main.async { self.sessions = [] }
             return
         }
 
@@ -267,6 +283,9 @@ class StatusModel: ObservableObject {
         var loaded: [SessionStatus] = []
 
         for file in files where file.pathExtension == "json" {
+            // Skip temp files from atomic writes
+            if file.lastPathComponent.hasPrefix(".tmp.") { continue }
+
             if let attrs = try? fm.attributesOfItem(atPath: file.path),
                let modDate = attrs[.modificationDate] as? Date,
                now.timeIntervalSince(modDate) > staleThreshold {
@@ -284,7 +303,8 @@ class StatusModel: ObservableObject {
 
         loaded.sort { $0.status.priority > $1.status.priority }
 
-        DispatchQueue.main.async {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
             self.playAlertIfNeeded(old: self.sessions, new: loaded)
             self.sessions = loaded
             self.updateAnimation()
@@ -293,7 +313,7 @@ class StatusModel: ObservableObject {
 
     private func playAlertIfNeeded(old: [SessionStatus], new: [SessionStatus]) {
         let alertStatuses: Set<ClaudeStatus> = [.completed, .permissionRequired]
-        let oldMap = Dictionary(uniqueKeysWithValues: old.map { ($0.sessionId, $0.status) })
+        let oldMap = Dictionary(old.map { ($0.sessionId, $0.status) }, uniquingKeysWith: { _, new in new })
         for session in new where alertStatuses.contains(session.status) {
             if oldMap[session.sessionId] != session.status {
                 NSSound(named: .init("Funk"))?.play()
@@ -336,35 +356,53 @@ class StatusModel: ObservableObject {
     }
 
     private func startWatching() {
+        setupDirectoryWatcher()
+
+        // Reliable fallback timer (RunLoop-independent)
+        let timer = DispatchSource.makeTimerSource(queue: loadQueue)
+        timer.schedule(deadline: .now() + 2.0, repeating: 2.0)
+        timer.setEventHandler { [weak self] in
+            self?.doLoadSessions()
+        }
+        timer.resume()
+        pollingTimer = timer
+    }
+
+    /// Sets up DispatchSource to watch the sessions directory.
+    /// Re-establishes the watcher if the directory is deleted and recreated (#17).
+    private func setupDirectoryWatcher() {
+        // Cancel existing watcher
+        dispatchSource?.cancel()
+        dispatchSource = nil
+
+        ensureDirectoryExists()
         let path = sessionsDirectory.path
         let fd = path.withCString { cPath in
             Darwin.open(cPath, O_EVTONLY)
         }
-        if fd >= 0 {
-            fileDescriptor = fd
-            let source = DispatchSource.makeFileSystemObjectSource(
-                fileDescriptor: fd,
-                eventMask: .write,
-                queue: DispatchQueue.global(qos: .utility)
-            )
-            source.setEventHandler { [weak self] in
-                self?.loadSessions()
-            }
-            source.setCancelHandler {
-                Darwin.close(fd)
-            }
-            source.resume()
-            dispatchSource = source
-        }
+        guard fd >= 0 else { return }
 
-        DispatchQueue.main.async {
-            self.fallbackTimer = Timer.scheduledTimer(
-                withTimeInterval: 2.0,
-                repeats: true
-            ) { [weak self] _ in
-                self?.loadSessions()
+        fileDescriptor = fd
+        let source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fd,
+            eventMask: [.write, .delete, .rename, .attrib, .link],
+            queue: loadQueue
+        )
+        source.setEventHandler { [weak self] in
+            guard let self = self else { return }
+            let data = source.data
+            // If directory was deleted, re-establish watcher
+            if data.contains(.delete) || data.contains(.rename) {
+                self.ensureDirectoryExists()
+                self.setupDirectoryWatcher()
             }
+            self.doLoadSessions()
         }
+        source.setCancelHandler {
+            Darwin.close(fd)
+        }
+        source.resume()
+        dispatchSource = source
     }
 
     private func startWatchingTerminalFocus() {
@@ -381,25 +419,32 @@ class StatusModel: ObservableObject {
     }
 
     private func dismissCompletedSessions() {
-        let fm = FileManager.default
-        guard let files = try? fm.contentsOfDirectory(at: sessionsDirectory, includingPropertiesForKeys: nil) else { return }
-        var dismissed = false
-        for file in files where file.pathExtension == "json" {
-            if let data = try? Data(contentsOf: file),
-               let session = try? JSONDecoder().decode(SessionStatus.self, from: data),
-               session.status == .completed || session.status == .permissionRequired {
+        loadQueue.async { [weak self] in
+            guard let self = self else { return }
+            let fm = FileManager.default
+            guard let files = try? fm.contentsOfDirectory(at: self.sessionsDirectory, includingPropertiesForKeys: nil) else { return }
+            var dismissed = false
+            for file in files where file.pathExtension == "json" {
+                // Read, check, re-read before delete to avoid TOCTOU race (#6)
+                guard let data = try? Data(contentsOf: file),
+                      let session = try? JSONDecoder().decode(SessionStatus.self, from: data),
+                      session.status == .completed || session.status == .permissionRequired else { continue }
+                // Re-read to confirm status hasn't changed (e.g., hook wrote 'running' in between)
+                guard let data2 = try? Data(contentsOf: file),
+                      let session2 = try? JSONDecoder().decode(SessionStatus.self, from: data2),
+                      session2.status == .completed || session2.status == .permissionRequired else { continue }
                 try? fm.removeItem(at: file)
                 dismissed = true
             }
+            if dismissed { self.doLoadSessions() }
         }
-        if dismissed { loadSessions() }
     }
 
     private func stopWatching() {
         dispatchSource?.cancel()
         dispatchSource = nil
-        fallbackTimer?.invalidate()
-        fallbackTimer = nil
+        pollingTimer?.cancel()
+        pollingTimer = nil
         animationTimer?.invalidate()
         animationTimer = nil
         if let observer = workspaceObserver {

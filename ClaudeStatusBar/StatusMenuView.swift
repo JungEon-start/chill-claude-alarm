@@ -18,6 +18,11 @@ struct StatusMenuView: View {
 
         Divider()
 
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
+        Text("Chill Claude v\(version)")
+            .font(.footnote)
+            .foregroundColor(.secondary)
+
         Button("종료") {
             NSApplication.shared.terminate(nil)
         }
