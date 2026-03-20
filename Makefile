@@ -62,5 +62,9 @@ dmg: build
 		"$(APP_BUNDLE)"
 	@echo "DMG created: $(BUILD_DIR)/$(DMG_NAME).dmg"
 
+release-zip: build
+	@cd $(BUILD_DIR) && zip -r $(DMG_NAME).zip "$(APP_NAME).app"
+	@echo "Release zip created: $(BUILD_DIR)/$(DMG_NAME).zip"
+
 clean:
 	@rm -rf $(BUILD_DIR)
