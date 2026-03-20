@@ -428,7 +428,7 @@ class StatusModel: ObservableObject {
                 // Read, check, re-read before delete to avoid TOCTOU race (#6)
                 guard let data = try? Data(contentsOf: file),
                       let session = try? JSONDecoder().decode(SessionStatus.self, from: data),
-                      session.status == .completed || session.status == .permissionRequired else { continue }
+                      session.status == .completed else { continue }
                 // Re-read to confirm status hasn't changed (e.g., hook wrote 'running' in between)
                 guard let data2 = try? Data(contentsOf: file),
                       let session2 = try? JSONDecoder().decode(SessionStatus.self, from: data2),
