@@ -363,6 +363,15 @@ class StatusModel: ObservableObject {
         timer.schedule(deadline: .now() + 2.0, repeating: 2.0)
         timer.setEventHandler { [weak self] in
             self?.doLoadSessions()
+            // Dismiss completed sessions when terminal is already active,
+            // since didActivateApplicationNotification won't fire again.
+            DispatchQueue.main.async {
+                guard let self = self,
+                      let activeApp = NSWorkspace.shared.frontmostApplication,
+                      let bundleId = activeApp.bundleIdentifier,
+                      StatusModel.terminalBundleIds.contains(bundleId) else { return }
+                self.dismissCompletedSessions()
+            }
         }
         timer.resume()
         pollingTimer = timer
