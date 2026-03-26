@@ -22,6 +22,7 @@ mkdir -p "$INSTALL_DIR"
 
 # Quit running instance if any
 osascript -e "tell application \"$APP_NAME\" to quit" 2>/dev/null || true
+pkill -f "ChillClaude" 2>/dev/null || true
 sleep 1
 
 rm -rf "$INSTALL_DIR/$APP_NAME.app"
