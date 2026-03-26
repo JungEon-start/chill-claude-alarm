@@ -17,19 +17,21 @@ fi
 # Generate a simple session ID
 SESSION_ID="wrapper-$$"
 CWD="$(pwd)"
-STDIN_JSON="{\"session_id\":\"$SESSION_ID\",\"cwd\":\"$CWD\"}"
+# Escape special characters for JSON safety
+SAFE_CWD=$(printf '%s' "$CWD" | sed 's/\\/\\\\/g; s/"/\\"/g')
+STDIN_JSON="{\"session_id\":\"$SESSION_ID\",\"cwd\":\"$SAFE_CWD\"}"
 
 # Mark as running
 echo "$STDIN_JSON" | "$UPDATE_SCRIPT" running "Claude started"
 
-# Run Claude Code, forwarding all arguments
-claude "$@"
-EXIT_CODE=$?
-
-# Mark as completed or error based on exit code
-if [ $EXIT_CODE -eq 0 ]; then
+# Run Claude Code, forwarding all arguments.
+# Use an if-statement so non-zero exits do not terminate the wrapper before
+# we can record the final error state.
+if claude "$@"; then
+    EXIT_CODE=0
     echo "$STDIN_JSON" | "$UPDATE_SCRIPT" completed "Task finished"
 else
+    EXIT_CODE=$?
     echo "$STDIN_JSON" | "$UPDATE_SCRIPT" error "Exited with code $EXIT_CODE"
 fi
 

@@ -4,11 +4,8 @@ import CoreImage
 /// Renders the Claude character icon for the menu bar.
 /// Loads PNG from ~/.claude-status/icon.png and applies CIFilter tinting per status.
 /// Falls back to a built-in pixel grid if no PNG is found.
-/// Supports bounce animation for the "running" state.
 struct ClaudeIcon {
     private static let targetHeight: CGFloat = 18.0
-    static let frameCount = 6
-    private static let bounceOffsets: [CGFloat] = [0, 1, 2, 3, 2, 1]
 
     // Cache: final frame per status+frame
     private static var tintedCache: [ClaudeStatus: NSImage] = [:]
@@ -79,28 +76,6 @@ struct ClaudeIcon {
         statusImages.removeAll()
         baseImage = nil
         baseImageLoaded = false
-    }
-
-    // MARK: - Bounce Animation
-
-    private static func applyBounce(to image: NSImage, frame: Int) -> NSImage {
-        let maxBounce = bounceOffsets.max() ?? 0
-        let offset = bounceOffsets[frame % bounceOffsets.count]
-        let canvasSize = NSSize(width: image.size.width, height: image.size.height + maxBounce)
-
-        let result = NSImage(size: canvasSize)
-        result.lockFocus()
-        NSColor.clear.set()
-        NSRect(origin: .zero, size: canvasSize).fill()
-        image.draw(
-            at: NSPoint(x: 0, y: offset),
-            from: NSRect(origin: .zero, size: image.size),
-            operation: .sourceOver,
-            fraction: 1.0
-        )
-        result.unlockFocus()
-        result.isTemplate = false
-        return result
     }
 
     // MARK: - PNG Loading

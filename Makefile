@@ -7,7 +7,7 @@ ARCH = $(shell uname -m)
 INSTALL_DIR = $(HOME)/Applications
 DMG_NAME = ChillClaude
 
-.PHONY: build install uninstall clean run dmg
+.PHONY: build install uninstall clean run dmg test
 
 build: $(APP_BUNDLE)
 
@@ -65,6 +65,14 @@ dmg: build
 release-zip: build
 	@cd $(BUILD_DIR) && zip -r $(DMG_NAME).zip "$(APP_NAME).app"
 	@echo "Release zip created: $(BUILD_DIR)/$(DMG_NAME).zip"
+
+test:
+	@echo "Running Swift unit tests..."
+	@swiftc -o $(BUILD_DIR)/test-runner Tests/StatusModelTests.swift
+	@./$(BUILD_DIR)/test-runner
+	@echo ""
+	@echo "Running shell integration tests..."
+	@bash Tests/test-update-status.sh
 
 clean:
 	@rm -rf $(BUILD_DIR)

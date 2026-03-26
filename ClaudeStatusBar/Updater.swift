@@ -122,18 +122,26 @@ class Updater {
         }.resume()
     }
 
+    private static func shellEscape(_ s: String) -> String {
+        return "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
     private func replaceAndRelaunch(newApp: URL, tempDir: URL) {
         guard let currentApp = Bundle.main.bundleURL as URL? else { return }
         let pid = ProcessInfo.processInfo.processIdentifier
+
+        let sCurrent = Updater.shellEscape(currentApp.path)
+        let sNew = Updater.shellEscape(newApp.path)
+        let sTemp = Updater.shellEscape(tempDir.path)
 
         // Shell script: wait for current app to quit, replace, relaunch, cleanup
         let script = """
         #!/bin/bash
         while kill -0 \(pid) 2>/dev/null; do sleep 0.5; done
-        rm -rf "\(currentApp.path)"
-        mv "\(newApp.path)" "\(currentApp.path)"
-        open "\(currentApp.path)"
-        rm -rf "\(tempDir.path)"
+        rm -rf \(sCurrent)
+        mv \(sNew) \(sCurrent)
+        open \(sCurrent)
+        rm -rf \(sTemp)
         """
 
         let scriptPath = tempDir.appendingPathComponent("update.sh")

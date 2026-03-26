@@ -418,6 +418,8 @@ class StatusModel: ObservableObject {
         }
     }
 
+    private static let dismissableStatuses: Set<ClaudeStatus> = [.completed, .error]
+
     private func dismissCompletedSessions() {
         loadQueue.async { [weak self] in
             guard let self = self else { return }
@@ -428,11 +430,11 @@ class StatusModel: ObservableObject {
                 // Read, check, re-read before delete to avoid TOCTOU race (#6)
                 guard let data = try? Data(contentsOf: file),
                       let session = try? JSONDecoder().decode(SessionStatus.self, from: data),
-                      session.status == .completed else { continue }
+                      StatusModel.dismissableStatuses.contains(session.status) else { continue }
                 // Re-read to confirm status hasn't changed (e.g., hook wrote 'running' in between)
                 guard let data2 = try? Data(contentsOf: file),
                       let session2 = try? JSONDecoder().decode(SessionStatus.self, from: data2),
-                      session2.status == .completed || session2.status == .permissionRequired else { continue }
+                      StatusModel.dismissableStatuses.contains(session2.status) else { continue }
                 try? fm.removeItem(at: file)
                 dismissed = true
             }
@@ -473,6 +475,21 @@ class StatusModel: ObservableObject {
     }
 
     func focusSession(_ session: SessionStatus) {
+        // Dismiss completed/error sessions immediately on focus,
+        // since didActivateApplicationNotification may not fire
+        // when the terminal is already the active app.
+        // Re-read file to avoid race: hook may have changed status to running
+        // between the last UI refresh and this click.
+        if session.status == .completed || session.status == .error {
+            let file = sessionsDirectory.appendingPathComponent("\(session.sessionId).json")
+            if let data = try? Data(contentsOf: file),
+               let current = try? JSONDecoder().decode(SessionStatus.self, from: data),
+               StatusModel.dismissableStatuses.contains(current.status) {
+                try? FileManager.default.removeItem(at: file)
+                loadSessions()
+            }
+        }
+
         let cwd = session.cwd
 
         // Try CLI tools that can focus an existing window for the given directory
@@ -481,7 +498,7 @@ class StatusModel: ObservableObject {
             if FileManager.default.isExecutableFile(atPath: cli) {
                 let task = Process()
                 task.executableURL = URL(fileURLWithPath: cli)
-                task.arguments = ["-g", cwd]
+                task.arguments = [cwd]
                 try? task.run()
                 return
             }
@@ -490,7 +507,7 @@ class StatusModel: ObservableObject {
         // Fallback: activate terminal app via AppleScript
         let script = """
         tell application "System Events"
-            set termApps to {"Terminal", "iTerm2", "Warp", "Ghostty", "Alacritty", "kitty"}
+            set termApps to {"Terminal", "iTerm2", "Warp", "Ghostty", "Alacritty", "kitty", "Cursor", "Visual Studio Code"}
             repeat with appName in termApps
                 if exists (process appName) then
                     tell process appName to set frontmost to true
