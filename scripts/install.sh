@@ -3,7 +3,7 @@
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-APP_NAME="ClaudeStatusBar"
+APP_NAME="Chill Claude"
 INSTALL_DIR="$HOME/Applications"
 SCRIPTS_INSTALL_DIR="$HOME/.claude-status/scripts"
 
