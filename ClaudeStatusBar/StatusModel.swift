@@ -186,6 +186,7 @@ class StatusModel: ObservableObject {
         showResetTimeInMenuBar = UserDefaults.standard.object(forKey: "showResetTimeInMenuBar") as? Bool ?? false
         ensureDirectoryExists()
         performFirstLaunchSetupIfNeeded()
+        patchStatusLineScript()
         loadSessions()
         loadUsage()
         startWatching()
@@ -257,6 +258,39 @@ class StatusModel: ObservableObject {
 
         // 4. Write flag file
         try? "".write(to: installedFlag, atomically: true, encoding: .utf8)
+    }
+
+    /// Patches ~/.claude/statusline-command.sh to include rate_limits extraction
+    /// for the usage display feature. Only appends if the marker is not already present.
+    private func patchStatusLineScript() {
+        let fm = FileManager.default
+        let home = fm.homeDirectoryForCurrentUser
+        let scriptFile = home.appendingPathComponent(".claude/statusline-command.sh")
+
+        guard fm.fileExists(atPath: scriptFile.path),
+              var content = try? String(contentsOf: scriptFile, encoding: .utf8) else { return }
+
+        let marker = "# chill-claude-usage"
+        if content.contains(marker) { return }
+
+        let snippet = "\n\(marker)\n"
+            + "five_hour_used=$(echo \"$input\" | jq -r '.rate_limits.five_hour.used_percentage // empty')\n"
+            + "five_hour_resets=$(echo \"$input\" | jq -r '.rate_limits.five_hour.resets_at // empty')\n"
+            + "seven_day_used=$(echo \"$input\" | jq -r '.rate_limits.seven_day.used_percentage // empty')\n"
+            + "seven_day_resets=$(echo \"$input\" | jq -r '.rate_limits.seven_day.resets_at // empty')\n"
+            + "if [ -n \"$five_hour_used\" ] || [ -n \"$seven_day_used\" ]; then\n"
+            + "  USAGE_DIR=\"$HOME/.claude-status\"\n"
+            + "  mkdir -p \"$USAGE_DIR\"\n"
+            + "  USAGE_TMP=$(mktemp \"$USAGE_DIR/.tmp.usage.XXXXXX\")\n"
+            + "  NOW=$(date +%s)\n"
+            + "  cat > \"$USAGE_TMP\" << USAGE_EOF\n"
+            + "{\"five_hour\":{\"used_percentage\":${five_hour_used:-null},\"resets_at\":${five_hour_resets:-null}},\"seven_day\":{\"used_percentage\":${seven_day_used:-null},\"resets_at\":${seven_day_resets:-null}},\"model\":\"${model:-}\",\"updated_at\":${NOW}}\n"
+            + "USAGE_EOF\n"
+            + "  mv \"$USAGE_TMP\" \"$USAGE_DIR/usage.json\"\n"
+            + "fi\n"
+
+        content += snippet
+        try? content.write(to: scriptFile, atomically: true, encoding: .utf8)
     }
 
     /// Merges ClaudeStatusBar hook configuration into ~/.claude/settings.json
