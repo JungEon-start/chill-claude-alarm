@@ -13,7 +13,28 @@ struct ClaudeStatusBarApp: App {
         MenuBarExtra {
             StatusMenuView(model: statusModel)
         } label: {
-            Image(nsImage: statusModel.menuBarIcon)
+            HStack(spacing: 4) {
+                Image(nsImage: statusModel.menuBarIcon)
+                if let fiveHour = statusModel.usageInfo?.fiveHour {
+                    let showPct = statusModel.showUsageInMenuBar && fiveHour.usedPercentage != nil
+                    let showTime = statusModel.showResetTimeInMenuBar
+                        && fiveHour.resetsAt != nil
+                        && (fiveHour.resetsAt! - Date().timeIntervalSince1970) > 0
+
+                    if showPct || showTime {
+                        let parts = [
+                            showPct ? "\(Int(fiveHour.usedPercentage!))%" : nil,
+                            showTime ? {
+                                let r = fiveHour.resetsAt! - Date().timeIntervalSince1970
+                                return "\(Int(r) / 3600)h\((Int(r) % 3600) / 60)m"
+                            }() : nil
+                        ].compactMap { $0 }.joined(separator: " ")
+
+                        Text(parts)
+                            .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    }
+                }
+            }
         }
     }
 }

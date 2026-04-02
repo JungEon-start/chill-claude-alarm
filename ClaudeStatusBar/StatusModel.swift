@@ -92,11 +92,59 @@ struct SessionStatus: Codable, Identifiable {
     }
 }
 
+struct RateLimitWindow: Codable {
+    let usedPercentage: Double?
+    let resetsAt: TimeInterval?
+
+    enum CodingKeys: String, CodingKey {
+        case usedPercentage = "used_percentage"
+        case resetsAt = "resets_at"
+    }
+
+    var resetTimeString: String? {
+        guard let resets = resetsAt else { return nil }
+        let remaining = resets - Date().timeIntervalSince1970
+        guard remaining > 0 else { return nil }
+        let hours = Int(remaining) / 3600
+        let minutes = (Int(remaining) % 3600) / 60
+        if hours > 0 { return "\(hours)h \(minutes)m" }
+        if minutes > 0 { return "\(minutes)m" }
+        return "<1m"
+    }
+}
+
+struct UsageInfo: Codable {
+    let fiveHour: RateLimitWindow?
+    let sevenDay: RateLimitWindow?
+    let model: String?
+    let updatedAt: TimeInterval?
+
+    enum CodingKeys: String, CodingKey {
+        case fiveHour = "five_hour"
+        case sevenDay = "seven_day"
+        case model
+        case updatedAt = "updated_at"
+    }
+
+    var isStale: Bool {
+        guard let updated = updatedAt else { return true }
+        return Date().timeIntervalSince1970 - updated > 600
+    }
+}
+
 class StatusModel: ObservableObject {
     @Published var sessions: [SessionStatus] = []
     @Published private(set) var animationFrame: Int = 0
+    @Published var usageInfo: UsageInfo?
+    @Published var showUsageInMenuBar: Bool {
+        didSet { UserDefaults.standard.set(showUsageInMenuBar, forKey: "showUsageInMenuBar") }
+    }
+    @Published var showResetTimeInMenuBar: Bool {
+        didSet { UserDefaults.standard.set(showResetTimeInMenuBar, forKey: "showResetTimeInMenuBar") }
+    }
 
     private let sessionsDirectory: URL
+    private let usageFile: URL
     private let loadQueue = DispatchQueue(label: "com.claude.statusbar.load", qos: .utility)
     private var fileDescriptor: Int32 = -1
     private var dispatchSource: DispatchSourceFileSystemObject?
@@ -133,9 +181,13 @@ class StatusModel: ObservableObject {
     init() {
         let home = FileManager.default.homeDirectoryForCurrentUser
         sessionsDirectory = home.appendingPathComponent(".claude-status/sessions")
+        usageFile = home.appendingPathComponent(".claude-status/usage.json")
+        showUsageInMenuBar = UserDefaults.standard.object(forKey: "showUsageInMenuBar") as? Bool ?? false
+        showResetTimeInMenuBar = UserDefaults.standard.object(forKey: "showResetTimeInMenuBar") as? Bool ?? false
         ensureDirectoryExists()
         performFirstLaunchSetupIfNeeded()
         loadSessions()
+        loadUsage()
         startWatching()
         startWatchingTerminalFocus()
     }
@@ -267,6 +319,26 @@ class StatusModel: ObservableObject {
         }
     }
 
+    private func loadUsage() {
+        loadQueue.async { [weak self] in
+            self?.doLoadUsage()
+        }
+    }
+
+    private func doLoadUsage() {
+        guard let data = try? Data(contentsOf: usageFile),
+              let info = try? JSONDecoder().decode(UsageInfo.self, from: data),
+              !info.isStale else {
+            DispatchQueue.main.async { [weak self] in
+                self?.usageInfo = nil
+            }
+            return
+        }
+        DispatchQueue.main.async { [weak self] in
+            self?.usageInfo = info
+        }
+    }
+
     private func doLoadSessions() {
         let fm = FileManager.default
         // Issue #16: On failure, retain existing sessions instead of clearing
@@ -363,6 +435,7 @@ class StatusModel: ObservableObject {
         timer.schedule(deadline: .now() + 2.0, repeating: 2.0)
         timer.setEventHandler { [weak self] in
             self?.doLoadSessions()
+            self?.doLoadUsage()
             // Dismiss completed sessions when terminal is already active,
             // since didActivateApplicationNotification won't fire again.
             DispatchQueue.main.async {
