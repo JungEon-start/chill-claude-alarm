@@ -260,20 +260,20 @@ class StatusModel: ObservableObject {
         try? "".write(to: installedFlag, atomically: true, encoding: .utf8)
     }
 
-    /// Patches ~/.claude/statusline-command.sh to include rate_limits extraction
-    /// for the usage display feature. Only appends if the marker is not already present.
+    /// Ensures ~/.claude/statusline-command.sh exists and contains the rate_limits
+    /// extraction code. Creates the script if missing, appends if marker not found.
+    /// Also adds statusLine config to ~/.claude/settings.json if absent.
     private func patchStatusLineScript() {
         let fm = FileManager.default
         let home = fm.homeDirectoryForCurrentUser
-        let scriptFile = home.appendingPathComponent(".claude/statusline-command.sh")
+        let claudeDir = home.appendingPathComponent(".claude")
+        let scriptFile = claudeDir.appendingPathComponent("statusline-command.sh")
 
-        guard fm.fileExists(atPath: scriptFile.path),
-              var content = try? String(contentsOf: scriptFile, encoding: .utf8) else { return }
+        try? fm.createDirectory(at: claudeDir, withIntermediateDirectories: true)
 
         let marker = "# chill-claude-usage"
-        if content.contains(marker) { return }
-
-        let snippet = "\n\(marker)\n"
+        let usageSnippet = "\(marker)\n"
+            + "input=${input:-$(cat)}\n"
             + "five_hour_used=$(echo \"$input\" | jq -r '.rate_limits.five_hour.used_percentage // empty')\n"
             + "five_hour_resets=$(echo \"$input\" | jq -r '.rate_limits.five_hour.resets_at // empty')\n"
             + "seven_day_used=$(echo \"$input\" | jq -r '.rate_limits.seven_day.used_percentage // empty')\n"
@@ -289,8 +289,36 @@ class StatusModel: ObservableObject {
             + "  mv \"$USAGE_TMP\" \"$USAGE_DIR/usage.json\"\n"
             + "fi\n"
 
-        content += snippet
-        try? content.write(to: scriptFile, atomically: true, encoding: .utf8)
+        if fm.fileExists(atPath: scriptFile.path) {
+            // Existing script: append if marker not found
+            if var content = try? String(contentsOf: scriptFile, encoding: .utf8),
+               !content.contains(marker) {
+                content += "\n" + usageSnippet
+                try? content.write(to: scriptFile, atomically: true, encoding: .utf8)
+            }
+        } else {
+            // No script: create minimal one
+            let script = "#!/bin/sh\ninput=$(cat)\n\n" + usageSnippet
+            try? script.write(to: scriptFile, atomically: true, encoding: .utf8)
+            try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptFile.path)
+        }
+
+        // Ensure statusLine config exists in settings.json
+        let settingsFile = claudeDir.appendingPathComponent("settings.json")
+        var settings: [String: Any] = [:]
+        if let data = try? Data(contentsOf: settingsFile),
+           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            settings = json
+        }
+        if settings["statusLine"] == nil {
+            settings["statusLine"] = [
+                "type": "command",
+                "command": "bash ~/.claude/statusline-command.sh"
+            ]
+            if let data = try? JSONSerialization.data(withJSONObject: settings, options: [.prettyPrinted, .sortedKeys]) {
+                try? data.write(to: settingsFile, options: .atomic)
+            }
+        }
     }
 
     /// Merges ClaudeStatusBar hook configuration into ~/.claude/settings.json
