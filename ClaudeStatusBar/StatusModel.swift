@@ -126,10 +126,6 @@ struct UsageInfo: Codable {
         case updatedAt = "updated_at"
     }
 
-    var isStale: Bool {
-        guard let updated = updatedAt else { return true }
-        return Date().timeIntervalSince1970 - updated > 600
-    }
 }
 
 class StatusModel: ObservableObject {
@@ -391,8 +387,7 @@ class StatusModel: ObservableObject {
 
     private func doLoadUsage() {
         guard let data = try? Data(contentsOf: usageFile),
-              let info = try? JSONDecoder().decode(UsageInfo.self, from: data),
-              !info.isStale else {
+              let info = try? JSONDecoder().decode(UsageInfo.self, from: data) else {
             DispatchQueue.main.async { [weak self] in
                 self?.usageInfo = nil
             }
