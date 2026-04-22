@@ -5,7 +5,10 @@ set -euo pipefail
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 APP_NAME="Chill Claude"
 INSTALL_DIR="$HOME/Applications"
+APP_PATH="$INSTALL_DIR/$APP_NAME.app"
 SCRIPTS_INSTALL_DIR="$HOME/.claude-status/scripts"
+SYSTEM_APP_PATH="/Applications/$APP_NAME.app"
+LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister"
 
 echo "=== ClaudeStatusBar Installer ==="
 echo ""
@@ -22,11 +25,17 @@ mkdir -p "$INSTALL_DIR"
 
 # Quit running instance if any
 osascript -e "tell application \"$APP_NAME\" to quit" 2>/dev/null || true
+osascript -e 'tell application id "com.claude.statusbar" to quit' 2>/dev/null || true
 pkill -f "ChillClaude" 2>/dev/null || true
 sleep 1
 
-rm -rf "$INSTALL_DIR/$APP_NAME.app"
+for old_app in "$APP_PATH" "$SYSTEM_APP_PATH"; do
+    rm -rf "$old_app" 2>/dev/null || true
+done
 cp -R "build/$APP_NAME.app" "$INSTALL_DIR/"
+if [ -x "$LSREGISTER" ]; then
+    "$LSREGISTER" -f "$APP_PATH" >/dev/null 2>&1 || true
+fi
 echo "  -> App installed."
 
 # 3. Install scripts

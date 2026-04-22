@@ -179,6 +179,7 @@ class StatusModel: ObservableObject {
     }
 
     init() {
+        StartupDiagnostics.log("StatusModel init begin")
         let home = FileManager.default.homeDirectoryForCurrentUser
         sessionsDirectory = home.appendingPathComponent(".claude-status/sessions")
         usageFile = home.appendingPathComponent(".claude-status/usage.json")
@@ -191,6 +192,7 @@ class StatusModel: ObservableObject {
         loadUsage()
         startWatching()
         startWatchingTerminalFocus()
+        StartupDiagnostics.log("StatusModel init complete")
     }
 
     deinit {

@@ -114,6 +114,10 @@ struct ClaudeIcon {
 
     /// Scale image to menu bar height with nearest-neighbor interpolation.
     private static func scaleForMenuBar(_ image: NSImage, height: CGFloat? = nil) -> NSImage {
+        guard image.size.height > 0, image.size.width > 0 else {
+            // Keep menu bar rendering stable even if a custom icon file is invalid.
+            return fallbackGrid(for: .idle)
+        }
         let scale = (height ?? targetHeight) / image.size.height
         let newSize = NSSize(
             width: round(image.size.width * scale),

@@ -2,11 +2,17 @@ import SwiftUI
 
 @main
 struct ClaudeStatusBarApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var statusModel = StatusModel()
     private let updater = Updater()
 
     init() {
-        updater.start()
+        StartupDiagnostics.log("app init")
+        // Delay updater start so first launch state is visible to users.
+        let updater = self.updater
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) {
+            updater.start()
+        }
     }
 
     var body: some Scene {

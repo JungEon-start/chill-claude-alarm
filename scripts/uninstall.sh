@@ -1,22 +1,35 @@
 #!/bin/bash
-# uninstall.sh — Remove ClaudeStatusBar app and related files.
+# uninstall.sh — Remove Chill Claude app and related files.
 set -euo pipefail
 
-APP_NAME="ClaudeStatusBar"
+APP_NAME="Chill Claude"
 INSTALL_DIR="$HOME/Applications"
+APP_PATH="$INSTALL_DIR/$APP_NAME.app"
+SYSTEM_APP_PATH="/Applications/$APP_NAME.app"
+LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister"
 
-echo "=== ClaudeStatusBar Uninstaller ==="
+echo "=== Chill Claude Uninstaller ==="
 echo ""
 
 # Quit the app
 echo "[1/3] Stopping $APP_NAME..."
 osascript -e "tell application \"$APP_NAME\" to quit" 2>/dev/null || true
+osascript -e 'tell application id "com.claude.statusbar" to quit' 2>/dev/null || true
+pkill -f "ChillClaude" 2>/dev/null || true
 sleep 1
 echo "  -> Done."
 
 # Remove app
 echo "[2/3] Removing app..."
-rm -rf "$INSTALL_DIR/$APP_NAME.app"
+for app_path in "$APP_PATH" "$SYSTEM_APP_PATH"; do
+    if [ -d "$app_path" ]; then
+        rm -rf "$app_path" 2>/dev/null || true
+    fi
+done
+if [ -x "$LSREGISTER" ]; then
+    "$LSREGISTER" -u "$APP_PATH" >/dev/null 2>&1 || true
+    "$LSREGISTER" -u "$SYSTEM_APP_PATH" >/dev/null 2>&1 || true
+fi
 echo "  -> App removed."
 
 # Remove status directory and scripts
