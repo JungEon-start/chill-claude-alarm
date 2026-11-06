@@ -92,42 +92,6 @@ struct SessionStatus: Codable, Identifiable {
     }
 }
 
-struct RateLimitWindow: Codable {
-    let usedPercentage: Double?
-    let resetsAt: TimeInterval?
-
-    enum CodingKeys: String, CodingKey {
-        case usedPercentage = "used_percentage"
-        case resetsAt = "resets_at"
-    }
-
-    var resetTimeString: String? {
-        guard let resets = resetsAt else { return nil }
-        let remaining = resets - Date().timeIntervalSince1970
-        guard remaining > 0 else { return nil }
-        let hours = Int(remaining) / 3600
-        let minutes = (Int(remaining) % 3600) / 60
-        if hours > 0 { return "\(hours)h \(minutes)m" }
-        if minutes > 0 { return "\(minutes)m" }
-        return "<1m"
-    }
-}
-
-struct UsageInfo: Codable {
-    let fiveHour: RateLimitWindow?
-    let sevenDay: RateLimitWindow?
-    let model: String?
-    let updatedAt: TimeInterval?
-
-    enum CodingKeys: String, CodingKey {
-        case fiveHour = "five_hour"
-        case sevenDay = "seven_day"
-        case model
-        case updatedAt = "updated_at"
-    }
-
-}
-
 class StatusModel: ObservableObject {
     @Published var sessions: [SessionStatus] = []
     @Published private(set) var animationFrame: Int = 0

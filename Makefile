@@ -71,6 +71,10 @@ test:
 	@swiftc -o $(BUILD_DIR)/test-runner Tests/StatusModelTests.swift
 	@./$(BUILD_DIR)/test-runner
 	@echo ""
+	@echo "Running usage display tests..."
+	@swiftc -o $(BUILD_DIR)/usage-test-runner ClaudeStatusBar/Usage.swift Tests/usage/main.swift
+	@./$(BUILD_DIR)/usage-test-runner
+	@echo ""
 	@echo "Running shell integration tests..."
 	@bash Tests/test-update-status.sh
 
