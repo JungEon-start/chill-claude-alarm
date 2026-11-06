@@ -9,6 +9,11 @@
 
 set -euo pipefail
 
+# 헤드리스/크론 배치(예: invest-ax LLM 호출)는 메뉴바에 표시하지 않는다.
+# claude -p는 종료 시 Stop/SessionEnd 훅이 안정적으로 실행되지 않아
+# "running" 유령 상태가 남으므로, 배치 스크립트가 이 변수를 export한다.
+if [ "${CLAUDE_STATUS_DISABLE:-}" = "1" ]; then exit 0; fi
+
 STATUS="${1:-idle}"
 MESSAGE="${2:-}"
 
